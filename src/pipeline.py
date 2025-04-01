@@ -46,6 +46,17 @@ class DrugDiscoveryPipeline:
         try:
             print("\n[1/5] Retrieving bioactivity data...")
             df = self.retrieve_data(protein_name)
+            print("="*40)
+            print(df)
+            print("="*40)
+
+            if df.empty:
+                raise ValueError(f"No bioactivity data found for {protein_name}")
+            print(f"Retrieved {len(df)} records")
+
+            # required_columns = ['canonical_smiles', 'standard_value']
+            # if not all(col in df.columns for col in required_columns):
+            #     raise ValueError("Missing required columns in bioactivity data")
 
             print("\n[2/5] Preprocessing molecules...")
             X, y, valid_smiles = self.preprocess_data(df)

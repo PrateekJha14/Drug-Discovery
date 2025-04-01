@@ -17,43 +17,52 @@ class AdvancedDataRetriever:
         self.string_version = "11.5"
         
     def get_protein_interactions(self, protein_name, species=9606, score_threshold=700):
-        """Query STRING database for protein-protein interactions
-        
-        Args:
-            protein_name: Name of the protein to query
-            species: NCBI taxonomy ID (default: 9606 for human)
-            score_threshold: Minimum interaction score (0-1000)
-            
-        Returns:
-            List of interacting proteins with confidence scores
-        """
+        """Query STRING database for protein-protein interactions"""
         params = {
             "identifiers": protein_name,
             "species": species,
             "caller_identity": "drug_discovery_pipeline",
             "network_type": "functional",
-            "required_score": score_threshold
+            "required_score": score_threshold,
+            "add_nodes": "all" 
+
         }
-        
-        url = f"{self.string_api_url}/{self.string_version}/network"
-        
+
+        # Use the correct endpoint for JSON format
+        url = f"{self.string_api_url}/json/network"
+
         try:
             response = requests.post(url, data=params)
+            # print('=/'*30)
+            # print(response)
+            # print('=/'*30)
             response.raise_for_status()
+
+            # Parse JSON response
             interactions = response.json()
-            
-            # Process and return interactions
-            return [
-                {
-                    "queryItem": item.get("queryItem", ""),
-                    "interactor": item.get("preferredName_B", ""),
+
+            # Process the JSON response into the expected format
+            processed_interactions = []
+            for item in interactions:
+                    # Extract gene names instead of string IDs
+                interactor_id = item.get("stringId_B", "")
+                interactor_name = item.get("preferredName_B", interactor_id.split(".")[-1])
+                processed_interactions.append({
+                    "queryItem": item.get("stringId_A", ""),
+                    "interactor": interactor_name, 
                     "score": item.get("score", 0)
-                }
-                for item in interactions
-            ]
+                })
+
+            # print('=/'*30)
+            # print(processed_interactions)
+            # print('=/'*30)
+
+
+            return processed_interactions
         except Exception as e:
             self.logger.error(f"STRING API error: {str(e)}")
             return []
+
             
     def get_target_network(self, protein_name):
         """Get protein interaction network and identify potential drug targets"""
@@ -72,20 +81,32 @@ class AdvancedDataRetriever:
         """Integrated search using both STRING and ChEMBL"""
         # First get protein interaction network from STRING
         potential_targets = self.get_target_network(protein_name)
+
         
         # Add the original protein to the list
         all_targets = [protein_name] + potential_targets
+
+        print("="*40)
+        print(all_targets)
+        print("="*40)
         
         # Try each target with ChEMBL
+        i=0
         for target in all_targets:
             try:
-                print(f"Searching ChEMBL for target: {target}")
+                print("="*40)
+                print(i,target)
+                print("="*40)
+                print(f"Searching ChEMBL for target: {target} ////////////////////////")
                 data = self.get_target_data(target)
                 if len(data) > 0:
-                    print(f"Found {len(data)} bioactivity records for {target}")
+                    print(f"Found {len(data)} bioactivity records for {target}############")
                     return data
             except Exception as e:
-                self.logger.warning(f"Failed to retrieve data for {target}: {str(e)}")
+                print("="*40)
+                print(i,target)
+                print("="*40)
+                self.logger.warning(f"Failed to retrieve data for {target}: {str(e)}]]]]]]]]]]]")
                 continue
                 
         # If we get here, no data was found for any target
@@ -93,7 +114,7 @@ class AdvancedDataRetriever:
 
     def get_target_data(self, protein_name):
         """Fetch ChEMBL ID and bioactivity data with more flexible retrieval"""
-        print(f"\n{'='*30}\nSearching for target: {protein_name}")
+        print(f"\n{'='*30}\nSearching for target: {protein_name} PPPPPPPPPPPPPPPPP]]]]]]]][[[]]]")
         
         # Expanded search strategies
         search_strategies = [
@@ -174,11 +195,25 @@ class AdvancedDataRetriever:
             'mM': 1000000,
             'pM': 0.001
         }
-        
+
         df['standard_value'] = df.apply(
             lambda row: row['standard_value'] * unit_conversion.get(row['standard_units'], 1),
             axis=1
         )
-        
+
         df['standard_units'] = 'nM'
         return df
+
+    def ensembl_to_gene_symbol(self, ensembl_id):
+        """Convert Ensembl protein ID to gene symbol"""
+        # Extract just the ID part without species prefix
+        if "." in ensembl_id:
+            ensembl_id = ensembl_id.split(".")[-1]
+        
+        # For IDs that are already gene symbols
+        if not ensembl_id.startswith("ENSP"):
+            return ensembl_id
+            
+        # This would ideally use a proper mapping service
+        # For demonstration, return a simplified ID
+        return ensembl_id.replace("ENSP", "GENE")
