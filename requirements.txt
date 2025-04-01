@@ -1,0 +1,6 @@
+chembl_webresource_client
+pandas
+rdkit
+numpy
+scikit-learn
+ipykernel
