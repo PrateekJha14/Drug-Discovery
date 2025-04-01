@@ -1,22 +1,96 @@
+import logging
 from chembl_webresource_client.new_client import new_client
 import pandas as pd
+import requests
+import json
+
 from tqdm import tqdm
-import logging
 
 class AdvancedDataRetriever:
     def __init__(self, confidence_threshold=0.7, data_quality_filter=True):
-        """
-        Advanced data retrieval with enhanced target and activity selection
-        
-        Args:
-            confidence_threshold (float): Confidence score for target selection
-            data_quality_filter (bool): Apply additional data quality filters
-        """
         self.client = new_client
         self.logger = logging.getLogger(__name__)
         self.confidence_threshold = confidence_threshold
         self.data_quality_filter = data_quality_filter
+        self.string_api_url = "https://string-db.org/api"
+        self.string_output_format = "json"
+        self.string_version = "11.5"
         
+    def get_protein_interactions(self, protein_name, species=9606, score_threshold=700):
+        """Query STRING database for protein-protein interactions
+        
+        Args:
+            protein_name: Name of the protein to query
+            species: NCBI taxonomy ID (default: 9606 for human)
+            score_threshold: Minimum interaction score (0-1000)
+            
+        Returns:
+            List of interacting proteins with confidence scores
+        """
+        params = {
+            "identifiers": protein_name,
+            "species": species,
+            "caller_identity": "drug_discovery_pipeline",
+            "network_type": "functional",
+            "required_score": score_threshold
+        }
+        
+        url = f"{self.string_api_url}/{self.string_version}/network"
+        
+        try:
+            response = requests.post(url, data=params)
+            response.raise_for_status()
+            interactions = response.json()
+            
+            # Process and return interactions
+            return [
+                {
+                    "queryItem": item.get("queryItem", ""),
+                    "interactor": item.get("preferredName_B", ""),
+                    "score": item.get("score", 0)
+                }
+                for item in interactions
+            ]
+        except Exception as e:
+            self.logger.error(f"STRING API error: {str(e)}")
+            return []
+            
+    def get_target_network(self, protein_name):
+        """Get protein interaction network and identify potential drug targets"""
+        interactions = self.get_protein_interactions(protein_name)
+        
+        # Sort interactions by confidence score
+        interactions = sorted(interactions, key=lambda x: x["score"], reverse=True)
+        
+        # Get top interactors as potential targets
+        potential_targets = [item["interactor"] for item in interactions[:10]]
+        
+        print(f"Found {len(potential_targets)} potential targets from STRING database")
+        return potential_targets
+        
+    def run_integrated_search(self, protein_name):
+        """Integrated search using both STRING and ChEMBL"""
+        # First get protein interaction network from STRING
+        potential_targets = self.get_target_network(protein_name)
+        
+        # Add the original protein to the list
+        all_targets = [protein_name] + potential_targets
+        
+        # Try each target with ChEMBL
+        for target in all_targets:
+            try:
+                print(f"Searching ChEMBL for target: {target}")
+                data = self.get_target_data(target)
+                if len(data) > 0:
+                    print(f"Found {len(data)} bioactivity records for {target}")
+                    return data
+            except Exception as e:
+                self.logger.warning(f"Failed to retrieve data for {target}: {str(e)}")
+                continue
+                
+        # If we get here, no data was found for any target
+        raise ValueError(f"No bioactivity data found for {protein_name} or its interactors")
+
     def get_target_data(self, protein_name):
         """Fetch ChEMBL ID and bioactivity data with more flexible retrieval"""
         print(f"\n{'='*30}\nSearching for target: {protein_name}")
@@ -91,74 +165,7 @@ class AdvancedDataRetriever:
                         return df
                         
         raise ValueError(f"No bioactivity data found for {protein_name}")
-    
-    def _find_targets(self, protein_name):
-        """Find targets with multiple search strategies"""
-        search_strategies = [
-            {'target_synonym__iexact': protein_name, 'organism': 'Homo sapiens'},
-            {'pref_name__icontains': protein_name, 'organism': 'Homo sapiens'},
-            {'pref_name__icontains': protein_name}
-        ]
-        
-        for strategy in search_strategies:
-            targets = self.client.target.filter(**strategy)
-            if targets:
-                return targets
-                
-        return []
-        
-    def _select_best_target(self, targets):
-        """Select best target based on multiple criteria"""
-        targets = sorted(targets, key=lambda x: (
-            len(x.get('target_components', [])), # Component count
-            x.get('confidence_score', 0), # Confidence score
-            len(str(x.get('pref_name', ''))) # Name length
-        ), reverse=True)
-        
-        best_target = targets[0]
-        self.logger.info(f"Selected target: {best_target.get('pref_name')}")
-        return best_target
-        
-    def _fetch_bioactivities(self, target):
-        """Fetch bioactivity data with advanced filtering"""
-        target_id = target['target_chembl_id']
-        activities = list(tqdm(
-            self.client.activity.filter(
-                target_chembl_id=target_id,
-                standard_type__in=["IC50", "Ki", "Kd"],
-                relation="=",
-                assay_type="B",
-                standard_units__in=["nM", "μM", "pM", "mM"]
-            ).only(
-                'molecule_chembl_id', 'canonical_smiles',
-                'standard_value', 'standard_type',
-                'standard_units', 'pchembl_value',
-                'confidence_score'
-            ),
-            desc="Downloading records"
-        ))
-        
-        return activities
-        
-    def _process_activities(self, activities):
-        """Process and filter bioactivity data"""
-        df = pd.DataFrame(activities)
-        
-        # Comprehensive data cleaning
-        df = df[
-            df['standard_value'].notna() &
-            df['canonical_smiles'].notna() &
-            (df['confidence_score'] >= self.confidence_threshold if self.data_quality_filter else True)
-        ]
-        
-        df['standard_value'] = pd.to_numeric(df['standard_value'], errors='coerce')
-        df = df.dropna(subset=['standard_value'])
-        
-        # Convert to nM
-        df = self._convert_to_nM(df)
-        
-        return df
-        
+
     def _convert_to_nM(self, df):
         """Robust unit conversion to nM"""
         unit_conversion = {
@@ -175,8 +182,3 @@ class AdvancedDataRetriever:
         
         df['standard_units'] = 'nM'
         return df
-
-# Add compatibility layer for existing code
-class DataRetriever(AdvancedDataRetriever):
-    def __init__(self):
-        super().__init__()

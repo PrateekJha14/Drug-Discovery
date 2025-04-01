@@ -2,7 +2,7 @@ from src.pipeline import DrugDiscoveryPipeline
 import sys
 
 def format_admet(properties):
-    return f"""
+    basic = f"""
 - Molecular Weight: {properties.get('MolWt', 'N/A'):.2f}
 - LogP: {properties.get('LogP', 'N/A'):.2f}
 - TPSA: {properties.get('TPSA', 'N/A'):.2f}
@@ -10,8 +10,39 @@ def format_admet(properties):
 - H-Bond Acceptors: {properties.get('NumHAcceptors', 'N/A')}
 - Rotatable Bonds: {properties.get('NumRotatableBonds', 'N/A')}
 - Rings: {properties.get('RingCount', 'N/A')}
-- Lipinski HBD: {'Pass' if properties.get('HBD_Lipinski') else 'Fail'}
-- Lipinski HBA: {'Pass' if properties.get('HBA_Lipinski') else 'Fail'}"""
+- QED: {properties.get('QED', 'N/A'):.2f}
+- Lipinski Violations: {properties.get('Lipinski_Violations', 'N/A')}
+- Veber Violations: {properties.get('Veber_Violations', 'N/A')}
+- Druglikeness: {properties.get('Druglikeness', 'N/A')}"""
+
+    adme = f"""
+- Water Solubility: {properties.get('WaterSolubility', 'N/A')}
+- BBB Penetration: {'Yes' if properties.get('BBB_Penetration') else 'No'}
+- Human Intestinal Absorption: {'High' if properties.get('HIA') else 'Low'}
+- Caco-2 Permeability: {'High' if properties.get('Caco2') else 'Low'}
+- P-gp Substrate: {'Yes' if properties.get('Pgp_Substrate') else 'No'}
+- P-gp Inhibitor: {'Yes' if properties.get('Pgp_Inhibitor') else 'No'}
+- Plasma Protein Binding: {'High' if properties.get('PlasmaProteinBinding') else 'Low'}"""
+
+    metabolism = f"""
+- CYP1A2 Inhibitor: {'Yes' if properties.get('CYP1A2_Inhibitor') else 'No'}
+- CYP2C9 Inhibitor: {'Yes' if properties.get('CYP2C9_Inhibitor') else 'No'}
+- CYP2C19 Inhibitor: {'Yes' if properties.get('CYP2C19_Inhibitor') else 'No'}
+- CYP2D6 Inhibitor: {'Yes' if properties.get('CYP2D6_Inhibitor') else 'No'}
+- CYP3A4 Inhibitor: {'Yes' if properties.get('CYP3A4_Inhibitor') else 'No'}
+- CYP Promiscuity: {'High' if properties.get('CYP_Promiscuity') else 'Low'}"""
+
+    toxicity = f"""
+- AMES Toxicity: {'Yes' if properties.get('AMES_Toxicity') else 'No'}
+- hERG Inhibition: {'Yes' if properties.get('hERG_Inhibition') else 'No'}
+- Carcinogenicity: {'Yes' if properties.get('Carcinogenicity') else 'No'}
+- Acute Oral Toxicity: {properties.get('AcuteOralToxicity', 'N/A')}
+- Hepatotoxicity Risk: {'Yes' if properties.get('HepatotoxicityRisk') else 'No'}"""
+
+    overall = f"""
+- ADMET Score: {properties.get('ADMET_Score', 'N/A'):.2f}"""
+
+    return f"{basic}\n\nADME Properties:{adme}\n\nMetabolism:{metabolism}\n\nToxicity:{toxicity}\n\nOverall:{overall}"
 
 if __name__ == "__main__":
     print("\n" + "="*40)

@@ -1,7 +1,7 @@
 import pandas as pd
 from rdkit import Chem
-from src.admet import ADMETPredictor
-from src.data_retrieval import DataRetriever
+from src.admet import  EnhancedADMETPredictor
+from src.data_retrieval import AdvancedDataRetriever
 from src.preprocessing import Preprocessor
 from src.modeling import DrugModel
 from src.generation import MoleculeGenerator
@@ -12,13 +12,14 @@ logging.basicConfig(level=logging.INFO)
 class DrugDiscoveryPipeline:
     def __init__(self):
         self.model = DrugModel()
-        self.admet_predictor = ADMETPredictor()
-        self.retriever = DataRetriever()
+        self.admet_predictor = EnhancedADMETPredictor()
+        self.retriever = AdvancedDataRetriever()
         self.preprocessor = Preprocessor()
         self.generator = MoleculeGenerator()
 
     def retrieve_data(self, protein_name):
-        return self.retriever.get_target_data(protein_name)
+        # return self.retriever.get_target_data(protein_name)
+        return self.retriever.run_integrated_search(protein_name)
 
     def preprocess_data(self, df):
         X, valid_smiles = self.preprocessor.process_smiles(df['canonical_smiles'])

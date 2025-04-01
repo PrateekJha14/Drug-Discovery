@@ -1,0 +1,212 @@
+
+TOP CANDIDATES WITH ADMET PROPERTIES:
+
+1. NCc1cc(O)cc(O)c1O
+ Predicted IC50: 42.61 nM
+ ADMET Properties:
+- Molecular Weight: 155.15
+- LogP: 0.26
+- TPSA: 86.71
+- H-Bond Donors: 4
+- H-Bond Acceptors: 4
+- Rotatable Bonds: 1
+- Rings: 1
+- QED: 0.35
+- Lipinski Violations: 0
+- Veber Violations: 0
+- Druglikeness: High
+
+ADME Properties:
+- Water Solubility: Moderate
+- BBB Penetration: Yes
+- Human Intestinal Absorption: High
+- Caco-2 Permeability: High
+- P-gp Substrate: No
+- P-gp Inhibitor: No
+- Plasma Protein Binding: Low
+
+Metabolism:
+- CYP1A2 Inhibitor: No
+- CYP2C9 Inhibitor: No
+- CYP2C19 Inhibitor: No
+- CYP2D6 Inhibitor: No
+- CYP3A4 Inhibitor: No
+- CYP Promiscuity: Low
+
+Toxicity:
+- AMES Toxicity: No
+- hERG Inhibition: No
+- Carcinogenicity: No
+- Acute Oral Toxicity: Low
+- Hepatotoxicity Risk: No
+
+Overall:
+- ADMET Score: 0.94
+
+2. NCc1ccc(O)c(Cl)c1
+ Predicted IC50: 43.30 nM
+ ADMET Properties:
+- Molecular Weight: 157.60
+- LogP: 1.50
+- TPSA: 46.25
+- H-Bond Donors: 2
+- H-Bond Acceptors: 2
+- Rotatable Bonds: 1
+- Rings: 1
+- QED: 0.65
+- Lipinski Violations: 0
+- Veber Violations: 0
+- Druglikeness: High
+
+ADME Properties:
+- Water Solubility: Moderate
+- BBB Penetration: Yes
+- Human Intestinal Absorption: High
+- Caco-2 Permeability: High
+- P-gp Substrate: No
+- P-gp Inhibitor: No
+- Plasma Protein Binding: Low
+
+Metabolism:
+- CYP1A2 Inhibitor: No
+- CYP2C9 Inhibitor: No
+- CYP2C19 Inhibitor: No
+- CYP2D6 Inhibitor: No
+- CYP3A4 Inhibitor: No
+- CYP Promiscuity: Low
+
+Toxicity:
+- AMES Toxicity: No
+- hERG Inhibition: No
+- Carcinogenicity: No
+- Acute Oral Toxicity: Low
+- Hepatotoxicity Risk: No
+
+Overall:
+- ADMET Score: 0.94
+
+3. Nc1ccsc1C1CCNCC1
+ Predicted IC50: 43.77 nM
+ ADMET Properties:
+- Molecular Weight: 182.29
+- LogP: 1.80
+- TPSA: 38.05
+- H-Bond Donors: 2
+- H-Bond Acceptors: 3
+- Rotatable Bonds: 1
+- Rings: 2
+- QED: 0.69
+- Lipinski Violations: 0
+- Veber Violations: 0
+- Druglikeness: High
+
+ADME Properties:
+- Water Solubility: Moderate
+- BBB Penetration: Yes
+- Human Intestinal Absorption: High
+- Caco-2 Permeability: High
+- P-gp Substrate: No
+- P-gp Inhibitor: No
+- Plasma Protein Binding: Low
+
+Metabolism:
+- CYP1A2 Inhibitor: No
+- CYP2C9 Inhibitor: No
+- CYP2C19 Inhibitor: No
+- CYP2D6 Inhibitor: No
+- CYP3A4 Inhibitor: No
+- CYP Promiscuity: Low
+
+Toxicity:
+- AMES Toxicity: No
+- hERG Inhibition: No
+- Carcinogenicity: No
+- Acute Oral Toxicity: Low
+- Hepatotoxicity Risk: No
+
+Overall:
+- ADMET Score: 0.94
+
+4. Nc1cccc(O)c1C1CCNCC1
+ Predicted IC50: 44.06 nM
+ ADMET Properties:
+- Molecular Weight: 192.26
+- LogP: 1.44
+- TPSA: 58.28
+- H-Bond Donors: 3
+- H-Bond Acceptors: 3
+- Rotatable Bonds: 1
+- Rings: 2
+- QED: 0.59
+- Lipinski Violations: 0
+- Veber Violations: 0
+- Druglikeness: High
+
+ADME Properties:
+- Water Solubility: Moderate
+- BBB Penetration: Yes
+- Human Intestinal Absorption: High
+- Caco-2 Permeability: High
+- P-gp Substrate: No
+- P-gp Inhibitor: No
+- Plasma Protein Binding: Low
+
+Metabolism:
+- CYP1A2 Inhibitor: No
+- CYP2C9 Inhibitor: No
+- CYP2C19 Inhibitor: No
+- CYP2D6 Inhibitor: No
+- CYP3A4 Inhibitor: No
+- CYP Promiscuity: Low
+
+Toxicity:
+- AMES Toxicity: No
+- hERG Inhibition: No
+- Carcinogenicity: No
+- Acute Oral Toxicity: Low
+- Hepatotoxicity Risk: No
+
+Overall:
+- ADMET Score: 0.94
+
+5. Nc1ccc(C2CCNCC2)cc1O
+ Predicted IC50: 44.26 nM
+ ADMET Properties:
+- Molecular Weight: 192.26
+- LogP: 1.44
+- TPSA: 58.28
+- H-Bond Donors: 3
+- H-Bond Acceptors: 3
+- Rotatable Bonds: 1
+- Rings: 2
+- QED: 0.47
+- Lipinski Violations: 0
+- Veber Violations: 0
+- Druglikeness: High
+
+ADME Properties:
+- Water Solubility: Moderate
+- BBB Penetration: Yes
+- Human Intestinal Absorption: High
+- Caco-2 Permeability: High
+- P-gp Substrate: No
+- P-gp Inhibitor: No
+- Plasma Protein Binding: Low
+
+Metabolism:
+- CYP1A2 Inhibitor: No
+- CYP2C9 Inhibitor: No
+- CYP2C19 Inhibitor: No
+- CYP2D6 Inhibitor: No
+- CYP3A4 Inhibitor: No
+- CYP Promiscuity: Low
+
+Toxicity:
+- AMES Toxicity: No
+- hERG Inhibition: No
+- Carcinogenicity: No
+- Acute Oral Toxicity: Low
+- Hepatotoxicity Risk: No
+
+Overall:
+- ADMET Score: 0.94
