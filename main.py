@@ -44,9 +44,19 @@ def format_admet(properties):
 
     return f"{basic}\n\nADME Properties:{adme}\n\nMetabolism:{metabolism}\n\nToxicity:{toxicity}\n\nOverall:{overall}"
 
+def format_multi_target_results(candidate):
+    """Format multi-target prediction results"""
+    targets_info = ""
+    if 'targets' in candidate:
+        targets_info = "\n Target Specificity:"
+        for target, weight in zip(candidate.get('targets', []), candidate.get('target_weights', [])):
+            targets_info += f"\n  - {target}: {weight:.2f}"
+    
+    return targets_info
+
 if __name__ == "__main__":
     print("\n" + "="*40)
-    print("DRUG DISCOVERY WORKFLOW")
+    print("MULTI-TARGET DRUG DISCOVERY WORKFLOW")
     print("="*40)
 
     protein_name = input("\nEnter target protein name (e.g., 'EGFR', 'DRD2'): ").strip()
@@ -56,11 +66,12 @@ if __name__ == "__main__":
         candidates = pipeline.run_pipeline(protein_name)
 
         if candidates:
-            print("\nTOP CANDIDATES WITH ADMET PROPERTIES:")
+            print("\nTOP CANDIDATES WITH MULTI-TARGET PROPERTIES:")
             for i, candidate in enumerate(candidates, 1):
                 print(f"\n{i}. {candidate['SMILES']}")
                 print(f" Predicted IC50: {candidate['Predicted_IC50']:.2f} nM")
                 print(" ADMET Properties:" + format_admet(candidate))
+                print(format_multi_target_results(candidate))
         else:
             print("\nNo valid candidates generated")
 
@@ -68,6 +79,6 @@ if __name__ == "__main__":
         print(f"\nERROR: {str(e)}")
         print("\nTroubleshooting:")
         print("- Try different protein names (e.g., 'DRD2', 'ACHE')")
-        print("- Check internet connection for ChEMBL API access")
+        print("- Check internet connection for ChEMBL and STRING API access")
         print("- Ensure RDKit and other dependencies are properly installed")
         sys.exit(1)

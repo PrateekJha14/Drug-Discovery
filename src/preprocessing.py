@@ -68,3 +68,22 @@ class Preprocessor:
             Descriptors.NumRotatableBonds(mol),
             Descriptors.RingCount(mol)
         ]
+
+    def process_single_molecule(self, mol):
+        """Process a single molecule for multi-target analysis"""
+        if not mol:
+            return None, None
+            
+        # Generate fingerprint
+        from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
+        fp = GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
+        arr = np.zeros((1,))
+        AllChem.DataStructs.ConvertToNumpyArray(fp, arr)
+        
+        # Calculate descriptors
+        descriptors = self._get_descriptors(mol)
+        
+        # Combine features
+        X = np.hstack([arr, np.array(descriptors)])
+        
+        return X, Chem.MolToSmiles(mol)

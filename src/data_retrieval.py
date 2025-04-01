@@ -77,7 +77,7 @@ class AdvancedDataRetriever:
         print(f"Found {len(potential_targets)} potential targets from STRING database")
         return potential_targets
         
-    def run_integrated_search(self, protein_name):
+    # def run_integrated_search(self, protein_name):
         """Integrated search using both STRING and ChEMBL"""
         # First get protein interaction network from STRING
         potential_targets = self.get_target_network(protein_name)
@@ -111,6 +111,54 @@ class AdvancedDataRetriever:
                 
         # If we get here, no data was found for any target
         raise ValueError(f"No bioactivity data found for {protein_name} or its interactors")
+
+    def run_integrated_search(self, protein_name):
+        """Integrated search using both STRING and ChEMBL to collect data for multiple targets"""
+        # Get protein interaction network from STRING
+        potential_targets = self.get_target_network(protein_name)
+
+        # Add the original protein to the list
+        all_targets = [protein_name] + potential_targets
+
+        print(f"Found {len(potential_targets)} potential targets from STRING database")
+        print("="*40)
+        print(all_targets)
+        print("="*40)
+
+        # Store interaction scores for weighting
+        target_weights = {protein_name: 1.0}  # Primary target has weight 1.0
+
+        # Get interaction scores for all targets
+        interactions = self.get_protein_interactions(protein_name)
+        for interaction in interactions:
+            target = interaction["interactor"]
+            # Normalize score to 0-1 range (STRING scores are 0-1000)
+            score = interaction["score"] / 1000.0
+            if target in all_targets:
+                target_weights[target] = score
+
+        # Collect data for all targets
+        target_data = {}
+        for target in all_targets:
+            try:
+                print(f"Searching ChEMBL for target: {target}")
+                data = self.get_target_data(target)
+                if len(data) > 0:
+                    print(f"Found {len(data)} bioactivity records for {target}")
+                    # Add target information to the dataframe
+                    data['target_name'] = target
+                    data['target_weight'] = target_weights.get(target, 0.5)
+                    target_data[target] = data
+            except Exception as e:
+                self.logger.warning(f"Failed to retrieve data for {target}: {str(e)}")
+                continue
+            
+        if not target_data:
+            raise ValueError(f"No bioactivity data found for {protein_name} or its interactors")
+
+        # Combine all target data
+        combined_df = pd.concat(target_data.values(), ignore_index=True)
+        return combined_df, target_weights
 
     def get_target_data(self, protein_name):
         """Fetch ChEMBL ID and bioactivity data with more flexible retrieval"""
@@ -181,9 +229,15 @@ class AdvancedDataRetriever:
                     # Convert to nM units
                     df = self._convert_to_nM(df)
                     
+                    print("[]"*40)
+                    print(df)
+                    print("[]"*40)
+
                     if len(df) > 0:
                         print(f"\nRetrieved {len(df)} valid bioactivity records")
                         return df
+
+            
                         
         raise ValueError(f"No bioactivity data found for {protein_name}")
 

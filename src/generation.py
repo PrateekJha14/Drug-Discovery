@@ -81,7 +81,9 @@ class VAEMoleculeGenerator:
         if not fingerprints:
             return
             
-        X = torch.FloatTensor(fingerprints).to(self.device)
+        # X = torch.FloatTensor(fingerprints).to(self.device)
+        X = torch.FloatTensor(np.array(fingerprints)).to(self.device)
+
         best_loss = float('inf')
         
         for epoch in range(epochs):

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from rdkit import Chem
 from src.admet import  EnhancedADMETPredictor
@@ -18,15 +19,76 @@ class DrugDiscoveryPipeline:
         self.generator = MoleculeGenerator()
 
     def retrieve_data(self, protein_name):
-        # return self.retriever.get_target_data(protein_name)
-        return self.retriever.run_integrated_search(protein_name)
+        """Retrieve bioactivity data for multiple targets"""
+        data, target_weights = self.retriever.run_integrated_search(protein_name)
+        self.target_weights = target_weights
+        return data
 
     def preprocess_data(self, df):
-        X, valid_smiles = self.preprocessor.process_smiles(df['canonical_smiles'])
-        y = df['standard_value'].values
+        """Process multi-target data"""
+        # Group by molecule to identify compounds that hit multiple targets
+        molecule_groups = df.groupby('canonical_smiles')
+        
+        # Create multi-target features
+        multi_target_data = []
+        valid_smiles = []
+        
+        for smile, group in molecule_groups:
+            try:
+                # Process molecular features
+                mol = Chem.MolFromSmiles(smile)
+                if not mol:
+                    continue
+                    
+                # Get molecular fingerprints and descriptors
+                X_mol, _ = self.preprocessor.process_single_molecule(mol)
+                
+                # Add target information
+                targets = group['target_name'].unique()
+                target_weights = [group[group['target_name'] == t]['target_weight'].iloc[0] for t in targets]
+                
+                # Calculate weighted average of activity values across targets
+                activities = []
+                for target in targets:
+                    target_data = group[group['target_name'] == target]
+                    # Convert to log scale for better numerical stability
+                    activity = np.log10(target_data['standard_value'].mean())
+                    weight = self.target_weights.get(target, 0.5)
+                    activities.append((activity, weight))
+                
+                # Weighted average of activities
+                if activities:
+                    total_weight = sum(w for _, w in activities)
+                    weighted_activity = sum(a * w for a, w in activities) / total_weight if total_weight > 0 else 0
+                    
+                    # Store data
+                    multi_target_data.append({
+                        'features': X_mol,
+                        'activity': 10 ** weighted_activity,  # Convert back from log scale
+                        'targets': targets,
+                        'target_weights': target_weights,
+                        'smiles': smile
+                    })
+                    valid_smiles.append(smile)
+            except Exception as e:
+                logging.warning(f"Error processing {smile}: {str(e)}")
+        
+        if not multi_target_data:
+            raise ValueError("No valid multi-target data could be processed")
+        
+        # Extract features and activities
+        X = np.array([item['features'] for item in multi_target_data])
+        y = np.array([item['activity'] for item in multi_target_data])
+        
+        # Store multi-target information for later use
+        self.multi_target_data = multi_target_data
+        
         return X, y, valid_smiles
-
+    
     def train_model(self, X, y):
+        """Train multi-target aware model"""
+        # Create a multi-target model that can leverage target information
+        self.model.set_target_weights(self.target_weights)
         self.model.train(X, y)
 
     def generate_molecules(self, num_samples=100, training_data=None):
