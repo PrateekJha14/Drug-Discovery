@@ -22,8 +22,13 @@ async def discover_compounds(request: ProteinRequest):
     if protein_name in results_cache:
         cached_result = results_cache[protein_name]
         # Update processing time
-        cached_result["processing_time"] = time.time() - start_time
-        return cached_result
+        updated_result = DiscoveryResponse(
+            candidates=cached_result.candidates,
+            count=cached_result.count,
+            query=cached_result.query,
+            processing_time=time.time() - start_time
+        )
+        return updated_result
     
     try:
         pipeline = DrugDiscoveryPipeline()
