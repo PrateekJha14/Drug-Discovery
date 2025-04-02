@@ -57,7 +57,7 @@ class EnhancedADMETPredictor:
             logger.warning(f"Invalid SMILES: {smiles}")
             return None
         
-        # Calculating properties
+
         properties = self._calculate_basic_properties(mol)
         properties.update(self._calculate_adme_properties(mol))
         properties.update(self._calculate_metabolism_properties(mol))
