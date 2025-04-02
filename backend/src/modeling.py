@@ -26,13 +26,9 @@ class DrugModel:
         """Train model with target weight awareness"""
         # Log-transform IC50 values
         # y = np.log10(y)
-        # Replace this line
-        # y = np.log10(y)
 
-        # With something like this
-        y = np.log10(y + 1e-6)  # where small_constant could be 1e-6
+        y = np.log10(y + 1e-6) 
         
-        # Check sample size and adjust validation strategy
         if len(X) <= 5:
             logger.warning(f"Very few samples: {len(X)}. Using Leave-One-Out validation.")
             cv = LeaveOneOut()
@@ -42,7 +38,7 @@ class DrugModel:
         else:
             cv = 5
             
-        # Handle single sample case
+
         if len(X) == 1:
             logger.warning("Only one sample available. Skipping cross-validation.")
             X_scaled = self.scaler.fit_transform(X)
@@ -56,7 +52,7 @@ class DrugModel:
             X, y, test_size=0.2, random_state=42
         )
         
-        # Scale features
+        # Scaling features
         X_train_scaled = self.scaler.fit_transform(X_train)
         X_val_scaled = self.scaler.transform(X_val)
         
@@ -85,14 +81,13 @@ class DrugModel:
         print(f"- Number of targets: {len(self.target_weights)}")
         
     def predict(self, X, target=None):
-        """Predict with optional target specificity"""
         X_scaled = self.scaler.transform(X)
         base_predictions = np.power(10, self.model.predict(X_scaled))
         
         # If target is specified, adjust prediction based on target weight
         if target and target in self.target_weights:
             weight = self.target_weights[target]
-            # Adjust prediction based on target weight (higher weight = lower IC50)
+            #higher weight = lower IC50
             return base_predictions * (1 / max(weight, 0.1))
         
         return base_predictions

@@ -17,7 +17,7 @@ class AdvancedDataRetriever:
         self.string_version = "11.5"
         
     def get_protein_interactions(self, protein_name, species=9606, score_threshold=700):
-        """Query STRING database for protein-protein interactions"""
+        """Quering STRING database for protein-protein interactions"""
         params = {
             "identifiers": protein_name,
             "species": species,
@@ -28,7 +28,7 @@ class AdvancedDataRetriever:
 
         }
 
-        # Use the correct endpoint for JSON format
+        #api for string database
         url = f"{self.string_api_url}/json/network"
 
         try:
@@ -38,13 +38,11 @@ class AdvancedDataRetriever:
             # print('=/'*30)
             response.raise_for_status()
 
-            # Parse JSON response
             interactions = response.json()
 
-            # Process the JSON response into the expected format
             processed_interactions = []
             for item in interactions:
-                    # Extract gene names instead of string IDs
+                    # Extracting gene names
                 interactor_id = item.get("stringId_B", "")
                 interactor_name = item.get("preferredName_B", interactor_id.split(".")[-1])
                 processed_interactions.append({
@@ -56,8 +54,6 @@ class AdvancedDataRetriever:
             # print('=/'*30)
             # print(processed_interactions)
             # print('=/'*30)
-
-
             return processed_interactions
         except Exception as e:
             self.logger.error(f"STRING API error: {str(e)}")
@@ -65,59 +61,24 @@ class AdvancedDataRetriever:
 
             
     def get_target_network(self, protein_name):
-        """Get protein interaction network and identify potential drug targets"""
         interactions = self.get_protein_interactions(protein_name)
-        
-        # Sort interactions by confidence score
+
+        # Sorting interactions by confidence score
         interactions = sorted(interactions, key=lambda x: x["score"], reverse=True)
         
-        # Get top interactors as potential targets
+        # top interactors as potential targets
         potential_targets = [item["interactor"] for item in interactions[:10]]
         
         print(f"Found {len(potential_targets)} potential targets from STRING database")
         return potential_targets
-        
-    # def run_integrated_search(self, protein_name):
-        """Integrated search using both STRING and ChEMBL"""
-        # First get protein interaction network from STRING
-        potential_targets = self.get_target_network(protein_name)
-
-        
-        # Add the original protein to the list
-        all_targets = [protein_name] + potential_targets
-
-        print("="*40)
-        print(all_targets)
-        print("="*40)
-        
-        # Try each target with ChEMBL
-        i=0
-        for target in all_targets:
-            try:
-                print("="*40)
-                print(i,target)
-                print("="*40)
-                print(f"Searching ChEMBL for target: {target} ////////////////////////")
-                data = self.get_target_data(target)
-                if len(data) > 0:
-                    print(f"Found {len(data)} bioactivity records for {target}############")
-                    return data
-            except Exception as e:
-                print("="*40)
-                print(i,target)
-                print("="*40)
-                self.logger.warning(f"Failed to retrieve data for {target}: {str(e)}]]]]]]]]]]]")
-                continue
-                
-        # If we get here, no data was found for any target
-        raise ValueError(f"No bioactivity data found for {protein_name} or its interactors")
+     
 
     def run_integrated_search(self, protein_name):
-        """Integrated search using both STRING and ChEMBL to collect data for multiple targets"""
-        # Get protein interaction network from STRING
+        """using both STRING and ChEMBL to collect data for multiple targets"""
+        #protein interaction network from STRING Database
         potential_targets = self.get_target_network(protein_name)
 
-        # Add the original protein to the list
+        # Adding original protein to list
         all_targets = [protein_name] + potential_targets
 
         print(f"Found {len(potential_targets)} potential targets from STRING database")
@@ -125,10 +86,10 @@ class AdvancedDataRetriever:
         print(all_targets)
         print("="*40)
 
-        # Store interaction scores for weighting
+        # Store interaction scores
         target_weights = {protein_name: 1.0}  # Primary target has weight 1.0
 
-        # Get interaction scores for all targets
+        # interaction scores for all targets
         interactions = self.get_protein_interactions(protein_name)
         for interaction in interactions:
             target = interaction["interactor"]
@@ -137,7 +98,7 @@ class AdvancedDataRetriever:
             if target in all_targets:
                 target_weights[target] = score
 
-        # Collect data for all targets
+        # Collecting data for all targets
         target_data = {}
         for target in all_targets:
             try:
@@ -145,7 +106,6 @@ class AdvancedDataRetriever:
                 data = self.get_target_data(target)
                 if len(data) > 0:
                     print(f"Found {len(data)} bioactivity records for {target}")
-                    # Add target information to the dataframe
                     data['target_name'] = target
                     data['target_weight'] = target_weights.get(target, 0.5)
                     target_data[target] = data
@@ -156,15 +116,14 @@ class AdvancedDataRetriever:
         if not target_data:
             raise ValueError(f"No bioactivity data found for {protein_name} or its interactors")
 
-        # Combine all target data
+        # Combining
         combined_df = pd.concat(target_data.values(), ignore_index=True)
         return combined_df, target_weights
 
     def get_target_data(self, protein_name):
         """Fetch ChEMBL ID and bioactivity data with more flexible retrieval"""
-        print(f"\n{'='*30}\nSearching for target: {protein_name} PPPPPPPPPPPPPPPPP]]]]]]]][[[]]]")
+        print(f"\n{'='*30}\nSearching for target: {protein_name} PPPPPPPPP]]]")
         
-        # Expanded search strategies
         search_strategies = [
             # 1. Exact match with human targets
             lambda: self.client.target.filter(
@@ -197,11 +156,11 @@ class AdvancedDataRetriever:
                         reverse=True)
         
         # Try multiple targets if first one fails
-        for target in targets[:3]: # Try top 3 targets
+        for target in targets[:3]: 
             target_id = target['target_chembl_id']
             print(f"Attempting target: {target.get('pref_name')} ({target_id})")
             
-            # Expand activity type search
+            # activity type search
             activity_types = ["IC50", "Ki", "Kd", "EC50"]
             for activity_type in activity_types:
                 print(f"Searching with activity type: {activity_type}")
@@ -220,8 +179,7 @@ class AdvancedDataRetriever:
                 
                 if activities:
                     df = pd.DataFrame(activities)
-                    
-                    # Clean data
+
                     df = df[df.standard_value.notna() & df.canonical_smiles.notna()]
                     df['standard_value'] = pd.to_numeric(df['standard_value'], errors='coerce')
                     df = df.dropna(subset=['standard_value'])
@@ -242,32 +200,23 @@ class AdvancedDataRetriever:
         raise ValueError(f"No bioactivity data found for {protein_name}")
 
     def _convert_to_nM(self, df):
-        """Robust unit conversion to nM"""
         unit_conversion = {
             'μM': 1000,
             'nM': 1,
             'mM': 1000000,
             'pM': 0.001
         }
-
         df['standard_value'] = df.apply(
             lambda row: row['standard_value'] * unit_conversion.get(row['standard_units'], 1),
             axis=1
         )
-
         df['standard_units'] = 'nM'
         return df
 
     def ensembl_to_gene_symbol(self, ensembl_id):
-        """Convert Ensembl protein ID to gene symbol"""
-        # Extract just the ID part without species prefix
         if "." in ensembl_id:
             ensembl_id = ensembl_id.split(".")[-1]
-        
-        # For IDs that are already gene symbols
+
         if not ensembl_id.startswith("ENSP"):
             return ensembl_id
-            
-        # This would ideally use a proper mapping service
-        # For demonstration, return a simplified ID
         return ensembl_id.replace("ENSP", "GENE")

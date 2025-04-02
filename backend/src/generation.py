@@ -32,7 +32,7 @@ class VAEMoleculeGenerator:
             ("C(=O)O", "Carboxylic Acid"), ("CN", "Cyano"),
         ]
         
-        # VAE Components
+        # VAE 
         self.encoder = self._build_encoder(latent_dim)
         self.decoder = self._build_decoder(latent_dim)
         self.optimizer = optim.Adam(
@@ -101,7 +101,7 @@ class VAEMoleculeGenerator:
             loss.backward()
             self.optimizer.step()
             
-            # Calculate reconstruction accuracy
+            # reconstruction accuracy
             with torch.no_grad():
                 preds = (recon_x > 0.5).float()
                 acc = (preds == X).float().mean()
@@ -146,20 +146,20 @@ class VAEMoleculeGenerator:
         """Generate novel molecules through VAE latent space"""
         try:
             with torch.no_grad():
-                # Generate from latent space
+                # Generating from latent space
                 z = torch.randn(1, self.decoder[0].in_features).to(self.device)
                 recon_x = self.decoder(z)
                 
                 # Probabilistic sampling
                 gen_fp_arr = (torch.rand_like(recon_x) < recon_x).cpu().numpy().astype(int)[0]
                 
-                # Create fingerprint object
+                # fingerprint object
                 gen_fp = DataStructs.ExplicitBitVect(2048)
                 for i in range(2048):
                     if gen_fp_arr[i]:
                         gen_fp.SetBit(i)
                         
-                # Find nearest neighbor
+                # nearest neighbor
                 max_sim = -1
                 best_mol = None
                 
@@ -173,8 +173,7 @@ class VAEMoleculeGenerator:
                     if sim > max_sim:
                         max_sim = sim
                         best_mol = Chem.MolFromSmiles(smile)
-                        
-                # Only return novel molecules
+                    
                 if max_sim < 0.6:
                     return self._optimize_molecule(gen_fp_arr)
                     
@@ -184,11 +183,9 @@ class VAEMoleculeGenerator:
             print(f"VAE generation failed: {e}")
             return None
             
-    def _optimize_molecule(self, fp_arr):
-        """Genetic algorithm-based molecule optimization"""
-        # Placeholder for genetic optimization
-        # Consider using the GA implementation from RDKit
-        return None # Fallback to traditional method
+    # def _optimize_molecule(self, fp_arr):
+    #     # Placeholder for genetic optimization
+    #     return None 
         
     def _generate_hybrid_molecule(self):
         """Traditional fragment-based generation"""

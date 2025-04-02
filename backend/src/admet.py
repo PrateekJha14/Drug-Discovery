@@ -52,31 +52,29 @@ class EnhancedADMETPredictor:
         }
 
     def calculate_admet(self, smiles):
-        """Calculate comprehensive ADMET properties for a given molecule."""
         mol = Chem.MolFromSmiles(smiles)
         if not mol:
             logger.warning(f"Invalid SMILES: {smiles}")
             return None
         
-        # Calculate all properties
+        # Calculating properties
         properties = self._calculate_basic_properties(mol)
         properties.update(self._calculate_adme_properties(mol))
         properties.update(self._calculate_metabolism_properties(mol))
         properties.update(self._calculate_toxicity_properties(mol))
         
-        # Add Lipinski Rule of 5 compliance
+        # Lipinski Rule of 5 compliance
         properties.update(self._calculate_druglikeness(mol))
         
-        # Add SMILES
         properties['SMILES'] = smiles
         
-        # Calculate ADMET score
+        # Calculating ADMET score
         properties['ADMET_Score'] = self.calculate_admet_score(properties)
         
         return properties
     
     def _calculate_basic_properties(self, mol):
-        """Calculate basic molecular properties."""
+
         return {
             'MolWt': Descriptors.MolWt(mol),
             'LogP': Descriptors.MolLogP(mol),
@@ -86,7 +84,7 @@ class EnhancedADMETPredictor:
             'NumRotatableBonds': Descriptors.NumRotatableBonds(mol),
             'RingCount': Descriptors.RingCount(mol),
             'AromaticRings': Lipinski.NumAromaticRings(mol),
-            'QED': QED.qed(mol)  # Quantitative Estimate of Drug-likeness
+            'QED': QED.qed(mol)  
         }
     
     def _calculate_adme_properties(self, mol):
@@ -135,7 +133,6 @@ class EnhancedADMETPredictor:
         }
     
     def _calculate_metabolism_properties(self, mol):
-        """Calculate metabolism-related properties using simple rule-based models."""
         logp = Descriptors.MolLogP(mol)
         mw = Descriptors.MolWt(mol)
         aromatic_rings = Lipinski.NumAromaticRings(mol)
@@ -163,23 +160,22 @@ class EnhancedADMETPredictor:
         }
     
     def _calculate_toxicity_properties(self, mol):
-        """Calculate toxicity-related properties using simple rule-based models."""
         logp = Descriptors.MolLogP(mol)
         mw = Descriptors.MolWt(mol)
         
         # Check for structural alerts
         has_halogen = sum([atom.GetAtomicNum() in [9, 17, 35, 53] for atom in mol.GetAtoms()]) > 0
         
-        # AMES mutagenicity (simplified model)
+        # AMES mutagenicity 
         ames_toxic = 1 if (has_halogen and logp > 3 and mw > 250) else 0
         
         # hERG inhibition (cardiotoxicity)
         herg_inhibition = 1 if (logp > 3.7 and Descriptors.NumHDonors(mol) > 0) else 0
         
-        # Carcinogenicity (simplified model)
+        # Carcinogenicity 
         carcinogenic = 1 if (ames_toxic == 1 and mw > 300) else 0
         
-        # Acute oral toxicity (simplified)
+        # Acute oral toxicity 
         if logp > 5 or mw > 600:
             acute_oral_toxicity = "High"
         elif logp > 3 or mw > 400:
@@ -230,14 +226,14 @@ class EnhancedADMETPredictor:
         score = 0
         total_weight = 0
         
-        # Transform categorical values to binary
+        # Transforming categorical values to binary
         binary_props = properties.copy()
         if 'AcuteOralToxicity' in binary_props:
             binary_props['AcuteOralToxicity'] = 1 if binary_props['AcuteOralToxicity'] == 'Low' else 0
         if 'WaterSolubility' in binary_props:
             binary_props['WaterSolubility'] = 1 if binary_props['WaterSolubility'] in ['Moderate', 'High'] else 0
             
-        # Calculate weighted score
+        # Calculating weighted score
         for prop, weight in self.property_weights.items():
             if prop in binary_props:
                 # For toxicity endpoints, we want 0 (non-toxic) to contribute positively
@@ -250,7 +246,7 @@ class EnhancedADMETPredictor:
                     score += binary_props[prop] * weight
                 total_weight += weight
         
-        # Normalize score between 0 and 1
+        # Normalizing score between 0 and 1
         if total_weight > 0:
             normalized_score = score / total_weight
         else:
@@ -264,7 +260,7 @@ class EnhancedADMETPredictor:
         return max(0, min(1, normalized_score))
     
     def analyze_candidates(self, candidates):
-        """Compute ADMET properties for top drug candidates."""
+        """Computing ADMET properties for top drug candidates."""
         results = []
         for smiles, ic50 in candidates:
             admet_props = self.calculate_admet(smiles)
@@ -272,7 +268,7 @@ class EnhancedADMETPredictor:
                 admet_props['Predicted_IC50'] = ic50
                 results.append(admet_props)
         
-        # Sort by ADMET score
+
         if results:
             results.sort(key=lambda x: x.get('ADMET_Score', 0), reverse=True)
             

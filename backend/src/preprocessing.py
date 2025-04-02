@@ -16,7 +16,6 @@ class Preprocessor:
         ]
 
     def process_smiles(self, smiles_series):
-        """Convert SMILES to cleaned molecules and fingerprints"""
         valid_mols = []
         valid_smiles = []
 
@@ -39,7 +38,7 @@ class Preprocessor:
         if not valid_mols:
             raise ValueError("No valid molecules remaining after preprocessing")
 
-        # Generate fingerprints
+        # fingerprints
         fingerprints = []
         for mol in valid_mols:
             from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
@@ -48,17 +47,15 @@ class Preprocessor:
             AllChem.DataStructs.ConvertToNumpyArray(fp, arr)
             fingerprints.append(arr)
 
-        # Calculate descriptors
+        # Calculating descriptors
         descriptor_data = [
             self._get_descriptors(mol) for mol in valid_mols
         ]
 
-        # Combine features
         X = np.hstack([np.array(fingerprints), np.array(descriptor_data)])
         return X, valid_smiles
 
     def _get_descriptors(self, mol):
-        """Calculate molecular descriptors"""
         return [
             Descriptors.MolWt(mol),
             Descriptors.MolLogP(mol),
@@ -70,20 +67,16 @@ class Preprocessor:
         ]
 
     def process_single_molecule(self, mol):
-        """Process a single molecule for multi-target analysis"""
         if not mol:
             return None, None
             
-        # Generate fingerprint
         from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
         fp = GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
         arr = np.zeros((1,))
         AllChem.DataStructs.ConvertToNumpyArray(fp, arr)
         
-        # Calculate descriptors
         descriptors = self._get_descriptors(mol)
         
-        # Combine features
         X = np.hstack([arr, np.array(descriptors)])
         
         return X, Chem.MolToSmiles(mol)

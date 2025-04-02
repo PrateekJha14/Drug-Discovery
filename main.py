@@ -1,5 +1,7 @@
-from src.pipeline import DrugDiscoveryPipeline
+
 import sys
+
+from backend.src.pipeline import DrugDiscoveryPipeline
 
 def format_admet(properties):
     basic = f"""
