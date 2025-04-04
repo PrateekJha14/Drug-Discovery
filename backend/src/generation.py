@@ -11,6 +11,11 @@ from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import pdist
 from skopt import gp_minimize
 from skopt.space import Real
+from rdkit.Chem import QED
+from rdkit.Chem import rdFingerprintGenerator
+
+
+
 
 class VAEMoleculeGenerator:
     def __init__(self, latent_dim=256, vocab_size=1000, use_chembl_scaffolds=True):
@@ -137,8 +142,9 @@ class VAEMoleculeGenerator:
         if len(mols) <= 1:
             return valid_scaffolds
 
-        fingerprints = [AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048) for mol in mols]
-
+        
+        morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+        fingerprints = [morgan_gen.GetFingerprint(mol) for mol in mols]
         # distance matrix (1 - similarity)
         n = len(fingerprints)
         distance_matrix = np.zeros((n, n))
@@ -199,7 +205,8 @@ class VAEMoleculeGenerator:
         for smile in smiles_list:
             mol = Chem.MolFromSmiles(smile)
             if mol:
-                fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
+                morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+                fp = morgan_gen.GetFingerprint(mol)
                 arr = np.zeros(2048, dtype=np.int32)
                 AllChem.DataStructs.ConvertToNumpyArray(fp, arr)
                 fingerprints.append(arr)
@@ -330,18 +337,58 @@ class VAEMoleculeGenerator:
         except Exception as e:
             print(f"VAE generation failed: {e}")
             return None
+        
+    def _optimize_molecule(self, fp_arr):
+       try:
+           # Create fingerprint object
+           gen_fp = DataStructs.ExplicitBitVect(2048)
+           for i in range(2048):
+               if fp_arr[i]:
+                   gen_fp.SetBit(i)
+           
+           # Find closest molecule in training data
+           max_sim = -1
+           best_mol = None
+           
+           for train_fp, smile in zip(self.training_fps, self.training_smiles):
+               train_fpv = DataStructs.ExplicitBitVect(2048)
+               for i in range(2048):
+                   if train_fp[i]:
+                       train_fpv.SetBit(i)
+               
+               sim = DataStructs.TanimotoSimilarity(gen_fp, train_fpv)
+               if sim > max_sim:
+                   max_sim = sim
+                   best_mol = Chem.MolFromSmiles(smile)
+           
+           if best_mol:
+               # Apply random structural modifications to make it novel
+               mol = self._modify_scaffold(Chem.MolToSmiles(best_mol))
+               if mol:
+                   # Optimize 3D structure if possible
+                   try:
+                       mol = Chem.AddHs(mol)
+                       AllChem.EmbedMolecule(mol)
+                       AllChem.UFFOptimizeMolecule(mol)
+                       mol = Chem.RemoveHs(mol)
+                   except:
+                       pass
+                   return mol
+           return None
+       except Exception as e:
+           print(f"Molecule optimization failed: {e}")
+           return None
+
       
 
     def _dock_molecule(self, mol, receptor_file=None):
-        # This is a placeholder for integrating with docking software
-        # In a real implementation, this would call AutoDock Vina or similar
         try:
-            # Mock implementation - returns random score between -12 (good) and 0 (poor)
+            #returns random score between -12 (good) and 0 (poor)
             if mol:
-                # In a real implementation:
-                # 1. Convert mol to 3D
-                # 2. Prepare for docking (add hydrogens, charges)
-                # 3. Call docking software
+                # In further implementation we will:
+                # 1. convert mol to 3D
+                # 2. prepare for docking
+                # 3. use docking software
                 # 4. Parse and return results
                 
                 # For now, just return a property-based estimate
@@ -358,10 +405,47 @@ class VAEMoleculeGenerator:
 
         
     def _generate_hybrid_molecule(self):
-        scaffold, _ = random.choice(self.scaffolds)
+        # scaffold, _ = random.choice(self.scaffolds)
+        scaffold = self._select_scaffold_by_properties()
         mol = self._modify_scaffold(scaffold)
         return mol
-        
+    
+    
+    def _select_scaffold_by_properties(self):
+        # properties for each scaffold and selecting accordingly
+        scaffold_scores = []
+        for scaffold_smiles, name in self.scaffolds:
+            mol = Chem.MolFromSmiles(scaffold_smiles)
+            if mol:
+                # QED (drug-likeness)
+                qed = QED.qed(mol)
+                #  complexity measure
+                complexity = Descriptors.BalabanJ(mol) if hasattr(Descriptors, 'BalabanJ') else 1.0
+                # Normalize complexity (lower is better for synthesis)
+                norm_complexity = 1.0 / (1.0 + complexity)
+
+                mw = Descriptors.MolWt(mol)
+                logp = Descriptors.MolLogP(mol)
+
+                # Score based on desirable properties (higher is better)
+                property_score = qed * 3.0 + norm_complexity * 2.0 + (0.5 if 250 < mw < 500 else 0) + (0.5 if 1 < logp < 4 else 0)
+                scaffold_scores.append((scaffold_smiles, name, property_score))
+
+        # Select scaffold with probability proportional to score
+        total_score = sum(score for _, _, score in scaffold_scores)
+        if total_score <= 0:
+            return random.choice(self.scaffolds)[0]  # if all scores are negative
+
+        # Weighted selection
+        r = random.uniform(0, total_score)
+        cumulative = 0
+        for scaffold, name, score in scaffold_scores:
+            cumulative += score
+            if r <= cumulative:
+                return scaffold
+
+        return self.scaffolds[0][0]
+
     def _modify_scaffold(self, scaffold):
         mol = Chem.MolFromSmiles(scaffold)
         if not mol:
@@ -423,7 +507,30 @@ class VAEMoleculeGenerator:
         if not atoms:
             return mol
 
-        atom = random.choice(atoms)
+        # Score atoms based on their environment
+        atom_scores = []
+        for atom in atoms:
+            # Prefer atoms that are not in rings
+            in_ring_penalty = 0.5 if atom.IsInRing() else 1.0
+            # Prefer atoms with more hydrogens
+            h_bonus = atom.GetTotalNumHs() * 0.2
+            # Prefer carbon atoms (more stable connections)
+            element_factor = 1.0 if atom.GetSymbol() == 'C' else 0.8
+            # Calculate score
+            score = in_ring_penalty * (1.0 + h_bonus) * element_factor
+            atom_scores.append((atom, score))
+    
+        # Select atom with probability proportional to score
+        total_score = sum(score for _, score in atom_scores)
+        r = random.uniform(0, total_score)
+        cumulative = 0
+        selected_atom = atoms[0]  # Default
+        for atom, score in atom_scores:
+            cumulative += score
+            if r <= cumulative:
+                selected_atom = atom
+                break
+
         fragment, _ = self._predict_fragment(mol)
         frag_mol = Chem.MolFromSmiles(fragment)
 

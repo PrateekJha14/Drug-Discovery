@@ -1,6 +1,7 @@
 from rdkit import Chem
 from rdkit.Chem import AllChem, Descriptors
 from rdkit.Chem.SaltRemover import SaltRemover
+from rdkit.Chem import rdFingerprintGenerator
 import numpy as np
 import pandas as pd
 import logging
@@ -41,8 +42,8 @@ class Preprocessor:
         # fingerprints
         fingerprints = []
         for mol in valid_mols:
-            from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
-            fp = GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
+            morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+            fp = morgan_gen.GetFingerprint(mol)
             arr = np.zeros((1,))
             AllChem.DataStructs.ConvertToNumpyArray(fp, arr)
             fingerprints.append(arr)
@@ -69,9 +70,9 @@ class Preprocessor:
     def process_single_molecule(self, mol):
         if not mol:
             return None, None
-            
-        from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
-        fp = GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
+
+        morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+        fp = morgan_gen.GetFingerprint(mol)
         arr = np.zeros((1,))
         AllChem.DataStructs.ConvertToNumpyArray(fp, arr)
         
