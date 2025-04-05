@@ -27,6 +27,7 @@ class DrugDiscoveryPipeline:
     def preprocess_data(self, df):
         """Process multi-target data"""
         molecule_groups = df.groupby('canonical_smiles')
+        print(df.shape,"molecule_groups shape")
 
         multi_target_data = []
         valid_smiles = []
@@ -74,6 +75,7 @@ class DrugDiscoveryPipeline:
         
         # Extracting features and activities
         X = np.array([item['features'] for item in multi_target_data])
+        print(f"X shape: {X.shape}")
         y = np.array([item['activity'] for item in multi_target_data])
         
         # Storing multi-target information 
@@ -143,7 +145,9 @@ class DrugDiscoveryPipeline:
                     logging.warning(f"Prediction failed for {smile}: {str(e)}")
 
             results = sorted(predictions, key=lambda x: x[1])
-            n_top = max(5, len(results) // 20)
+            print(f"Predictions: {results}")
+            print(f"Generated {len(results)} candidate molecules")
+            n_top = 10
             top_candidates = results[:n_top]
 
             return self.analyze_candidates(top_candidates)

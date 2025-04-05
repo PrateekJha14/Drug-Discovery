@@ -2,16 +2,19 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import HomePage from './components/HomePage';
 import ResultsPage from './components/ResultsPage';
+import { ThemeProvider } from './context/ThemeContext';
 
-export default function App() {
+function App() {
   return (
-    <Router>
-      <div className="app">
+    <ThemeProvider>
+      <Router>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/results" element={<ResultsPage />} />
         </Routes>
-      </div>
-    </Router>
+      </Router>
+    </ThemeProvider>
   );
 }
+
+export default App;
