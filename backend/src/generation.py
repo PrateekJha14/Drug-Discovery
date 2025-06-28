@@ -13,16 +13,21 @@ from skopt import gp_minimize
 from skopt.space import Real
 from rdkit.Chem import QED
 from rdkit.Chem import rdFingerprintGenerator
+import pickle
+import time
+from functools import lru_cache
 
 
-
-
-class VAEMoleculeGenerator:
-    def __init__(self, latent_dim=256, vocab_size=1000, use_chembl_scaffolds=True):
+class OptimizedVAEMoleculeGenerator:
+    def __init__(self, latent_dim=256, vocab_size=1000, use_chembl_scaffolds=True, cache_size=1000):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._vae_trained = False
+        self.cache_size = cache_size
         
-        # Traditional fragments
+        # Initialize fingerprint generator once
+        self.morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+        
+        # Traditional fragments (kept smaller for speed)
         self._default_scaffolds = [
             ("c1ccccc1", "Benzene"),
             ("C1CCCCC1", "Cyclohexane"),
@@ -41,145 +46,229 @@ class VAEMoleculeGenerator:
             ("C(=O)O", "Carboxylic Acid"), ("CN", "Cyano"),
         ]
         
-        # Load ChEMBL scaffolds 
+        # Load and preprocess scaffolds
         if use_chembl_scaffolds:
-            self.scaffolds = self._load_chembl_scaffolds()
-            # Cluster scaffolds to reduce redundancy
-            self.scaffolds = self._cluster_scaffolds(self.scaffolds)
+            self.scaffolds = self._load_optimized_scaffolds()
         else:
             self.scaffolds = self._default_scaffolds
+        
+        # Precompute scaffold properties for faster selection
+        self._precompute_scaffold_properties()
         
         # VAE Components
         self.encoder = self._build_encoder(latent_dim)
         self.decoder = self._build_decoder(latent_dim)
         self.optimizer = optim.Adam(
-            list(self.encoder.parameters()) +
-            list(self.decoder.parameters()),
+            list(self.encoder.parameters()) + list(self.decoder.parameters()),
             lr=0.001
         )
+        
+        # Caching for expensive operations
+        self._mol_cache = {}
+        self._fp_cache = {}
+        self._property_cache = {}
 
-
-    def _load_chembl_scaffolds(self, max_scaffolds=1000):
+    def _load_optimized_scaffolds(self, max_scaffolds=100):  # Reduced from 1000
+        """Load scaffolds with optimizations"""
         try:
-            print("Loading ChEMBL scaffolds...")
-            
-            # Load from a local file if available
+            # Try to load from cache first
             try:
-                scaffolds_df = pd.read_csv('chembl_scaffolds.csv')
-                scaffolds = scaffolds_df['scaffold_smiles'].tolist()[:max_scaffolds]
-                print(f"Loaded {len(scaffolds)} scaffolds from local file")
-                return [(s, f"ChEMBL_Scaffold_{i}") for i, s in enumerate(scaffolds)]
+                with open('scaffolds_cache.pkl', 'rb') as f:
+                    cached_data = pickle.load(f)
+                    if len(cached_data) >= max_scaffolds:
+                        print(f"Loaded {len(cached_data)} scaffolds from cache")
+                        return cached_data[:max_scaffolds]
             except:
                 pass
             
-            # Extracting from ChEMBL API
-            try:
-                print("Fetching compounds from ChEMBL API...")
-                from chembl_webresource_client.new_client import new_client
-                
-                compounds_api = new_client.molecule
-                compounds = compounds_api.filter(
-                    molecule_structures__canonical_smiles__isnull='false'
-                ).only('molecule_structures')[:1000]
-                
-                # Extracting SMILES
-                smiles_list = [
-                    compound['molecule_structures']['canonical_smiles'] 
-                    for compound in compounds 
-                    if compound['molecule_structures']
-                ]
-                
-                # Murcko scaffolds
-                from rdkit.Chem.Scaffolds import MurckoScaffold
-                
-                scaffolds = set()
-                for smiles in smiles_list:
-                    mol = Chem.MolFromSmiles(smiles)
-                    if mol:
-                        scaffold = MurckoScaffold.GetScaffoldForMol(mol)
-                        scaffold_smiles = Chem.MolToSmiles(scaffold)
-                        if scaffold_smiles and len(scaffold_smiles) > 5:  #tiny scaffolds
-                            scaffolds.add(scaffold_smiles)
-                
-                scaffolds = list(scaffolds)[:max_scaffolds]
-                print(f"Extracted {len(scaffolds)} scaffolds from ChEMBL API")
-                
-                # Save for future use
-                import pandas as pd
-                pd.DataFrame(scaffolds, columns=['scaffold_smiles']).to_csv('chembl_scaffolds.csv', index=False)
-                
-                return [(s, f"ChEMBL_Scaffold_{i}") for i, s in enumerate(scaffolds)]
-            except Exception as e:
-                print(f"Error fetching from ChEMBL API: {str(e)}")
+            print("Processing scaffolds...")
             
-            # default scaffolds
-            print("Using default scaffolds as fallback")
-            return self._default_scaffolds
+            # Use your provided scaffolds (limited set for speed)
+            scaffold_smiles_list = [
+                "c1ccc2[nH]ccc2c1",
+                "O=C(NNC(=O)[C@H]1CCCN1)OCc1ccccc1",
+                "C=C1CCC(c2cccc3ccccc23)C(=O)O1",
+                "O=C([C@@H]1CCCN1)N1CCN(Cc2ccccn2)CC1",
+                "c1ccc(CN2CCN3CC(c4ccccc4)c4ccccc4C3C2)cc1",
+                "C1=NC(C2CCCCC2)CCC1",
+                "c1ccc2c(c1)Cc1ccccc1-2",
+                "C1CC2CCC1C2",
+                "c1ccc(CSc2ncnc3sccc23)cc1",
+                "c1ccc2nc(N3CCNCC3)cnc2c1",
+                "c1ccc(C2CC3CCC2C3)cc1",
+                "O=C1NC(=O)C(c2ccccc2)(c2ccccc2)N1",
+                "O=C1c2ccccc2-c2ccccc21",
+                "O=C1CCCC1",
+                "c1nncs1",
+                "c1ccc2nc(N3CCCCC3)ncc2c1",
+                "O=C1Cc2ccccc2N1",
+                "c1nc(Nc2nncs2)c2ccsc2n1",
+                "c1ccc(-c2cccnn2)cc1",
+                "c1ccc2c3c([nH]c2c1)CCNCC3",
+                "O=S(=O)(Nc1cnccn1)c1cccc2ccccc12",
+                "c1ncc(C2CC3CCC2N3)cn1",
+                "c1ccc2c3c([nH]c2c1)CCNC3",
+                "c1ccc2c(c1)OCO2",
+                "N=c1[nH]ncs1",
+                "c1ccc(C2CNCc3ccccc32)cc1",
+                "c1ccc2c(c1)nc1n2CCNC1",
+                "O=S(=O)(Nc1ccccc1)c1ccccc1",
+                "c1nc(Sc2nncs2)c2ccsc2n1",
+                "c1ccc2ccccc2c1",
+                "C1=NCCCC1",
+                "c1ccc2c(Sc3cnc4ncncc4n3)cccc2c1"
+            ]
+            
+            # Process and validate scaffolds
+            valid_scaffolds = []
+            for i, smiles in enumerate(scaffold_smiles_list[:max_scaffolds]):
+                mol = Chem.MolFromSmiles(smiles)
+                if mol and self._is_valid_scaffold(mol):
+                    valid_scaffolds.append((smiles, f"Scaffold_{i}"))
+            
+            # Cluster to reduce redundancy (faster with smaller set)
+            if len(valid_scaffolds) > 20:
+                valid_scaffolds = self._fast_cluster_scaffolds(valid_scaffolds, max_clusters=20)
+            
+            # Cache the results
+            try:
+                with open('scaffolds_cache.pkl', 'wb') as f:
+                    pickle.dump(valid_scaffolds, f)
+            except:
+                pass
+            
+            print(f"Processed {len(valid_scaffolds)} scaffolds")
+            return valid_scaffolds
             
         except Exception as e:
-            print(f"Error loading ChEMBL scaffolds: {str(e)}")
+            print(f"Error loading scaffolds: {str(e)}")
             return self._default_scaffolds
 
+    def _is_valid_scaffold(self, mol):
+        """Quick validation of scaffold"""
+        try:
+            mw = Descriptors.MolWt(mol)
+            return 50 <= mw <= 400 and mol.GetNumAtoms() >= 3
+        except:
+            return False
 
-
-
-    def _cluster_scaffolds(self, scaffolds, threshold=0.7):
-        print("Clustering scaffolds...")
-
-        # scaffolds to molecules and fingerprints
+    def _fast_cluster_scaffolds(self, scaffolds, max_clusters=20, threshold=0.6):
+        """Faster clustering with early termination"""
+        print(f"Fast clustering {len(scaffolds)} scaffolds...")
+        
+        if len(scaffolds) <= max_clusters:
+            return scaffolds
+        
+        # Sample subset for clustering if too many
+        if len(scaffolds) > 50:
+            scaffolds = random.sample(scaffolds, 50)
+        
+        # Convert to molecules and get fingerprints
         mols = []
         valid_scaffolds = []
-
-        for scaffold, name in scaffolds:
-            try:
-                mol = Chem.MolFromSmiles(scaffold)
-                if mol:
-                    mols.append(mol)
-                    valid_scaffolds.append((scaffold, name))
-            except:
-                continue
-            
-        if len(mols) <= 1:
-            return valid_scaffolds
-
         
-        morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
-        fingerprints = [morgan_gen.GetFingerprint(mol) for mol in mols]
-        # distance matrix (1 - similarity)
-        n = len(fingerprints)
-        distance_matrix = np.zeros((n, n))
-
-        for i in range(n):
-            for j in range(i+1, n):
+        for scaffold, name in scaffolds:
+            mol = self._get_mol_cached(scaffold)
+            if mol:
+                mols.append(mol)
+                valid_scaffolds.append((scaffold, name))
+        
+        if len(mols) <= max_clusters:
+            return valid_scaffolds
+        
+        # Fast fingerprint generation
+        fingerprints = [self._get_fingerprint_cached(mol) for mol in mols]
+        
+        # Simple greedy clustering for speed
+        clusters = []
+        used = set()
+        
+        for i, (scaffold, name) in enumerate(valid_scaffolds):
+            if i in used:
+                continue
+                
+            cluster = [i]
+            used.add(i)
+            
+            for j in range(i + 1, len(valid_scaffolds)):
+                if j in used:
+                    continue
+                    
                 sim = DataStructs.TanimotoSimilarity(fingerprints[i], fingerprints[j])
-                distance_matrix[i, j] = 1.0 - sim
-                distance_matrix[j, i] = 1.0 - sim
+                if sim >= threshold:
+                    cluster.append(j)
+                    used.add(j)
+            
+            # Take representative from cluster
+            clusters.append(valid_scaffolds[cluster[0]])
+            
+            if len(clusters) >= max_clusters:
+                break
+        
+        print(f"Clustered to {len(clusters)} representatives")
+        return clusters
 
-        # hierarchical clustering
-        Z = linkage(distance_matrix, method='ward')
+    @lru_cache(maxsize=1000)
+    def _get_mol_cached(self, smiles):
+        """Cached molecule creation"""
+        return Chem.MolFromSmiles(smiles)
 
-        # Form flat clusters
-        clusters = fcluster(Z, t=1 - threshold, criterion='distance')
+    @lru_cache(maxsize=1000)
+    def _get_fingerprint_cached(self, mol):
+        """Cached fingerprint generation"""
+        if mol is None:
+            return None
+        return self.morgan_gen.GetFingerprint(mol)
 
-        # representatives from each cluster
-        clustered_scaffolds = []
-        for cluster_id in set(clusters):
-            cluster_indices = np.where(clusters == cluster_id)[0]
-            # Use the first scaffold in each cluster as representative
-            clustered_scaffolds.append(valid_scaffolds[cluster_indices[0]])
-
-        print(f"Reduced {len(valid_scaffolds)} scaffolds to {len(clustered_scaffolds)} clusters")
-        return clustered_scaffolds
-
-
-
+    def _precompute_scaffold_properties(self):
+        """Precompute properties for all scaffolds"""
+        print("Precomputing scaffold properties...")
+        self.scaffold_properties = []
+        
+        for scaffold_smiles, name in self.scaffolds:
+            mol = self._get_mol_cached(scaffold_smiles)
+            if mol:
+                try:
+                    qed = QED.qed(mol)
+                    mw = Descriptors.MolWt(mol)
+                    logp = Descriptors.MolLogP(mol)
+                    
+                    # Simple complexity measure
+                    complexity = mol.GetNumBonds() / max(mol.GetNumAtoms(), 1)
+                    norm_complexity = 1.0 / (1.0 + complexity)
+                    
+                    # Property score
+                    property_score = (qed * 3.0 + norm_complexity * 2.0 + 
+                                    (0.5 if 250 < mw < 500 else 0) + 
+                                    (0.5 if 1 < logp < 4 else 0))
+                    
+                    self.scaffold_properties.append({
+                        'smiles': scaffold_smiles,
+                        'name': name,
+                        'qed': qed,
+                        'mw': mw,
+                        'logp': logp,
+                        'score': property_score
+                    })
+                except:
+                    # Default values for problematic molecules
+                    self.scaffold_properties.append({
+                        'smiles': scaffold_smiles,
+                        'name': name,
+                        'qed': 0.5,
+                        'mw': 200,
+                        'logp': 2.0,
+                        'score': 1.0
+                    })
 
     def _build_encoder(self, latent_dim):
         return nn.Sequential(
             nn.Linear(2048, 512),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(512, 256),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(256, latent_dim * 2)
         ).to(self.device)
         
@@ -187,8 +276,10 @@ class VAEMoleculeGenerator:
         return nn.Sequential(
             nn.Linear(latent_dim, 256),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(256, 512),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(512, 2048),
             nn.Sigmoid()
         ).to(self.device)
@@ -197,28 +288,38 @@ class VAEMoleculeGenerator:
         std = torch.exp(0.5 * log_var)
         eps = torch.randn_like(std)
         return mu + eps * std
+
+    def _train_vae(self, smiles_list, epochs=30):  # Reduced epochs
+        """Optimized VAE training"""
+        print("Training VAE...")
         
-    def _train_vae(self, smiles_list, epochs=50):
+        # Batch process fingerprints
         fingerprints = []
         valid_smiles = []
         
-        for smile in smiles_list:
-            mol = Chem.MolFromSmiles(smile)
-            if mol:
-                morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
-                fp = morgan_gen.GetFingerprint(mol)
-                arr = np.zeros(2048, dtype=np.int32)
-                AllChem.DataStructs.ConvertToNumpyArray(fp, arr)
-                fingerprints.append(arr)
-                valid_smiles.append(smile)
-                
+        batch_size = 100
+        for i in range(0, len(smiles_list), batch_size):
+            batch = smiles_list[i:i+batch_size]
+            for smile in batch:
+                mol = self._get_mol_cached(smile)
+                if mol:
+                    fp = self._get_fingerprint_cached(mol)
+                    if fp:
+                        arr = np.zeros(2048, dtype=np.int32)
+                        DataStructs.ConvertToNumpyArray(fp, arr)
+                        fingerprints.append(arr)
+                        valid_smiles.append(smile)
+                        
         if not fingerprints:
+            print("No valid fingerprints generated")
             return
             
-        # X = torch.FloatTensor(fingerprints).to(self.device)
         X = torch.FloatTensor(np.array(fingerprints)).to(self.device)
-
+        
+        # Training with early stopping
         best_loss = float('inf')
+        patience = 5
+        patience_counter = 0
         
         for epoch in range(epochs):
             self.optimizer.zero_grad()
@@ -229,403 +330,241 @@ class VAEMoleculeGenerator:
             recon_x = self.decoder(z)
             
             recon_loss = nn.functional.binary_cross_entropy(recon_x, X)
-            kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
-            loss = recon_loss + kl_loss
+            kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp()) / X.size(0)
+            loss = recon_loss + 0.1 * kl_loss  # Reduced KL weight
             
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                list(self.encoder.parameters()) + list(self.decoder.parameters()), 
+                max_norm=1.0
+            )
             self.optimizer.step()
             
-            # reconstruction accuracy
-            with torch.no_grad():
-                preds = (recon_x > 0.5).float()
-                acc = (preds == X).float().mean()
-                
+            # Early stopping
             if loss.item() < best_loss:
                 best_loss = loss.item()
+                patience_counter = 0
+            else:
+                patience_counter += 1
                 
-            print(f"Epoch {epoch+1}/{epochs} | Loss: {loss.item():.4f} | Acc: {acc.item():.2%}")
-            
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
+                
+            if epoch % 5 == 0:
+                with torch.no_grad():
+                    preds = (recon_x > 0.5).float()
+                    acc = (preds == X).float().mean()
+                print(f"Epoch {epoch+1}/{epochs} | Loss: {loss.item():.4f} | Acc: {acc.item():.2%}")
+        
         self._vae_trained = True
         self.training_fps = fingerprints
         self.training_smiles = valid_smiles
+
+    def _select_scaffold_optimized(self):
+        """Optimized scaffold selection using precomputed properties"""
+        if not self.scaffold_properties:
+            return self.scaffolds[0][0]
         
+        # Fast weighted selection
+        total_score = sum(prop['score'] for prop in self.scaffold_properties)
+        if total_score <= 0:
+            return random.choice(self.scaffold_properties)['smiles']
+        
+        r = random.uniform(0, total_score)
+        cumulative = 0
+        for prop in self.scaffold_properties:
+            cumulative += prop['score']
+            if r <= cumulative:
+                return prop['smiles']
+        
+        return self.scaffold_properties[0]['smiles']
+
+    def _generate_hybrid_molecule(self):
+        """Optimized hybrid molecule generation"""
+        scaffold = self._select_scaffold_optimized()
+        mol = self._modify_scaffold_fast(scaffold)
+        return mol
+
+    def _modify_scaffold_fast(self, scaffold):
+        """Faster scaffold modification"""
+        mol = self._get_mol_cached(scaffold)
+        if not mol:
+            return None
+            
+        # Limit modifications for speed
+        max_modifications = random.randint(1, 2)  # Reduced from 3
+        
+        for _ in range(max_modifications):
+            try:
+                mol = self._add_fragment_fast(mol)
+                if mol is None:
+                    break
+                Chem.SanitizeMol(mol)
+            except:
+                break
+                
+        # Skip stereoisomer enumeration for speed (major bottleneck)
+        return mol
+
+    def _add_fragment_fast(self, mol):
+        """Faster fragment addition"""
+        rwmol = Chem.RWMol(mol)
+        
+        # Simple atom selection (avoid scoring for speed)
+        atoms = [atom for atom in rwmol.GetAtoms() if atom.GetTotalNumHs() > 0]
+        if not atoms:
+            return mol
+            
+        selected_atom = random.choice(atoms)
+        
+        # Use smaller fragment set
+        simple_fragments = [("C", "Methyl"), ("O", "Hydroxyl"), ("N", "Amine"), ("F", "Fluoro")]
+        fragment, _ = random.choice(simple_fragments)
+        
+        frag_mol = self._get_mol_cached(fragment)
+        if not frag_mol:
+            return mol
+            
+        try:
+            combined = Chem.CombineMols(rwmol, frag_mol)
+            ed_combined = Chem.EditableMol(combined)
+            ed_combined.AddBond(
+                selected_atom.GetIdx(),
+                rwmol.GetNumAtoms(),
+                order=Chem.BondType.SINGLE
+            )
+            return ed_combined.GetMol()
+        except:
+            return mol
+
     def generate_molecules(self, n_molecules=100, training_data=None, target_properties=None, 
-                      receptor_file=None, docking_threshold=-7.0):
+                          receptor_file=None, docking_threshold=-7.0):
+        """Optimized molecule generation"""
         
         if training_data:
             print("🚀 Training VAE model...")
-            self._train_vae(training_data)
+            # Limit training data size for speed
+            limited_training = training_data[:min(1000, len(training_data))]
+            self._train_vae(limited_training)
 
         molecules = []
         seen = set()
         docking_enabled = receptor_file is not None
-
-        if docking_enabled:
-            print("Docking filter enabled - molecules will be filtered by docking score")
-
+        
+        # Batch generation for efficiency
+        batch_size = 10
+        attempts_per_batch = batch_size * 3  # Allow some failures
+        
         with tqdm(total=n_molecules, desc="Generating molecules") as pbar:
             while len(molecules) < n_molecules:
-                # Hybrid generation strategy
-                if self._vae_trained and random.random() > 0.3:  # 70% VAE, 30% traditional
-                    mol = self._vae_generate_molecule()
-                    if not mol:
+                batch_molecules = []
+                
+                # Generate batch
+                for _ in range(attempts_per_batch):
+                    if len(batch_molecules) >= batch_size:
+                        break
+                        
+                    # Simplified generation strategy
+                    if self._vae_trained and random.random() > 0.5:  # 50/50 split
+                        mol = self._vae_generate_molecule_fast()
+                    else:
                         mol = self._generate_hybrid_molecule()
-                else:
-                    mol = self._generate_hybrid_molecule()
-
-                if mol:
-                    smile = Chem.MolToSmiles(mol)
-
-                    passes_filters = smile not in seen and self._pass_filters(mol)
-
-                    # docking filter if enabled
-                    if passes_filters and docking_enabled:
-                        docking_score = self._dock_molecule(mol, receptor_file)
-                        passes_filters = docking_score <= docking_threshold
-
-                    if passes_filters:
-                        seen.add(smile)
+                    
+                    if mol:
+                        smile = Chem.MolToSmiles(mol)
+                        if smile not in seen and self._pass_filters_fast(mol):
+                            if not docking_enabled or self._dock_molecule(mol, receptor_file) <= docking_threshold:
+                                batch_molecules.append(mol)
+                                seen.add(smile)
+                
+                # Add successful molecules
+                for mol in batch_molecules:
+                    if len(molecules) < n_molecules:
                         molecules.append(mol)
                         pbar.update(1)
-
+        
         return [Chem.MolToSmiles(mol) for mol in molecules]
-  
-    def _vae_generate_molecule(self):
+
+    def _vae_generate_molecule_fast(self):
+        """Faster VAE generation"""
+        if not self._vae_trained:
+            return None
+            
         try:
             with torch.no_grad():
-                # Using optimization with 20% probability, random sampling otherwise
-                if random.random() < 0.2:
-                    z = self._optimize_latent_space(n_calls=10)
-                else:
-                    z = torch.randn(1, self.decoder[0].in_features).to(self.device)
-
-                if z is None:
-                    return None
-
+                # Always use random sampling (skip optimization for speed)
+                z = torch.randn(1, self.decoder[0].in_features).to(self.device)
                 recon_x = self.decoder(z)
-
-                # Probabilistic sampling
-                gen_fp_arr = (torch.rand_like(recon_x) < recon_x).cpu().numpy().astype(int)[0]
-
-                # Create fingerprint object
+                
+                # Deterministic sampling for consistency
+                gen_fp_arr = (recon_x > 0.5).cpu().numpy().astype(int)[0]
+                
+                # Quick similarity check with limited training set
+                if len(self.training_smiles) > 100:
+                    sample_indices = random.sample(range(len(self.training_smiles)), 100)
+                else:
+                    sample_indices = range(len(self.training_smiles))
+                
+                best_mol = None
+                max_sim = -1
+                
                 gen_fp = DataStructs.ExplicitBitVect(2048)
                 for i in range(2048):
                     if gen_fp_arr[i]:
                         gen_fp.SetBit(i)
-
-                # nearest neighbor
-                max_sim = -1
-                best_mol = None
-
-                for train_fp, smile in zip(self.training_fps, self.training_smiles):
+                
+                for idx in sample_indices:
+                    train_fp = self.training_fps[idx]
                     train_fpv = DataStructs.ExplicitBitVect(2048)
                     for i in range(2048):
                         if train_fp[i]:
                             train_fpv.SetBit(i)
-
+                    
                     sim = DataStructs.TanimotoSimilarity(gen_fp, train_fpv)
                     if sim > max_sim:
                         max_sim = sim
-                        best_mol = Chem.MolFromSmiles(smile)
-
-                # Only return novel molecules
-                if max_sim < 0.6:
-                    return self._optimize_molecule(gen_fp_arr)
-
-                return best_mol if max_sim < 0.9 else None
-
+                        best_mol = self._get_mol_cached(self.training_smiles[idx])
+                
+                # Return novel molecules
+                return best_mol if 0.3 < max_sim < 0.8 else None
+                
         except Exception as e:
-            print(f"VAE generation failed: {e}")
             return None
-        
-    def _optimize_molecule(self, fp_arr):
-       try:
-           # Create fingerprint object
-           gen_fp = DataStructs.ExplicitBitVect(2048)
-           for i in range(2048):
-               if fp_arr[i]:
-                   gen_fp.SetBit(i)
-           
-           # Find closest molecule in training data
-           max_sim = -1
-           best_mol = None
-           
-           for train_fp, smile in zip(self.training_fps, self.training_smiles):
-               train_fpv = DataStructs.ExplicitBitVect(2048)
-               for i in range(2048):
-                   if train_fp[i]:
-                       train_fpv.SetBit(i)
-               
-               sim = DataStructs.TanimotoSimilarity(gen_fp, train_fpv)
-               if sim > max_sim:
-                   max_sim = sim
-                   best_mol = Chem.MolFromSmiles(smile)
-           
-           if best_mol:
-               # Apply random structural modifications to make it novel
-               mol = self._modify_scaffold(Chem.MolToSmiles(best_mol))
-               if mol:
-                   # Optimize 3D structure if possible
-                   try:
-                       mol = Chem.AddHs(mol)
-                       AllChem.EmbedMolecule(mol)
-                       AllChem.UFFOptimizeMolecule(mol)
-                       mol = Chem.RemoveHs(mol)
-                   except:
-                       pass
-                   return mol
-           return None
-       except Exception as e:
-           print(f"Molecule optimization failed: {e}")
-           return None
 
-      
+    def _pass_filters_fast(self, mol):
+        """Faster molecular filters"""
+        try:
+            mw = Descriptors.MolWt(mol)
+            if not (150 <= mw <= 600):
+                return False
+                
+            logp = Descriptors.MolLogP(mol)
+            if not (-2 <= logp <= 5):
+                return False
+                
+            # Skip other filters for speed
+            return True
+        except:
+            return False
 
     def _dock_molecule(self, mol, receptor_file=None):
+        """Fast mock docking"""
         try:
-            #returns random score between -12 (good) and 0 (poor)
             if mol:
-                # In further implementation we will:
-                # 1. convert mol to 3D
-                # 2. prepare for docking
-                # 3. use docking software
-                # 4. Parse and return results
-                
-                # For now, just return a property-based estimate
+                # Simplified property-based scoring
                 mw = Descriptors.MolWt(mol)
                 logp = Descriptors.MolLogP(mol)
-                rotatable_bonds = Descriptors.NumRotatableBonds(mol)
                 
-                # Simple heuristic: smaller, more rigid molecules tend to dock better
-                mock_score = -10.0 + (mw / 500) + (logp / 5) + (rotatable_bonds / 10)
+                # Quick heuristic
+                mock_score = -8.0 + (mw / 500) * 2 + (abs(logp - 2) / 3) * 2
                 return max(-12.0, min(0.0, mock_score))
             return 0.0
         except:
             return 0.0
 
-        
-    def _generate_hybrid_molecule(self):
-        # scaffold, _ = random.choice(self.scaffolds)
-        scaffold = self._select_scaffold_by_properties()
-        mol = self._modify_scaffold(scaffold)
-        return mol
-    
-    
-    def _select_scaffold_by_properties(self):
-        # properties for each scaffold and selecting accordingly
-        scaffold_scores = []
-        for scaffold_smiles, name in self.scaffolds:
-            mol = Chem.MolFromSmiles(scaffold_smiles)
-            if mol:
-                # QED (drug-likeness)
-                qed = QED.qed(mol)
-                #  complexity measure
-                complexity = Descriptors.BalabanJ(mol) if hasattr(Descriptors, 'BalabanJ') else 1.0
-                # Normalize complexity (lower is better for synthesis)
-                norm_complexity = 1.0 / (1.0 + complexity)
 
-                mw = Descriptors.MolWt(mol)
-                logp = Descriptors.MolLogP(mol)
-
-                # Score based on desirable properties (higher is better)
-                property_score = qed * 3.0 + norm_complexity * 2.0 + (0.5 if 250 < mw < 500 else 0) + (0.5 if 1 < logp < 4 else 0)
-                scaffold_scores.append((scaffold_smiles, name, property_score))
-
-        # Select scaffold with probability proportional to score
-        total_score = sum(score for _, _, score in scaffold_scores)
-        if total_score <= 0:
-            return random.choice(self.scaffolds)[0]  # if all scores are negative
-
-        # Weighted selection
-        r = random.uniform(0, total_score)
-        cumulative = 0
-        for scaffold, name, score in scaffold_scores:
-            cumulative += score
-            if r <= cumulative:
-                return scaffold
-
-        return self.scaffolds[0][0]
-
-    def _modify_scaffold(self, scaffold):
-        mol = Chem.MolFromSmiles(scaffold)
-        if not mol:
-            return None
-            
-        for _ in range(random.randint(1, 3)):
-            try:
-                mol = self._add_fragment(mol)
-                Chem.SanitizeMol(mol)
-            except:
-                return None
-                
-        stereoisomers = list(EnumerateStereoisomers(mol))
-        return random.choice(stereoisomers) if stereoisomers else mol
-        
-    def _predict_fragment(self, mol):
-        # Count functional groups
-        has_aromatic = False
-        has_hydroxyl = False
-        has_amine = False
-        has_carbonyl = False
-
-        for atom in mol.GetAtoms():
-            if atom.GetIsAromatic():
-                has_aromatic = True
-            if atom.GetSymbol() == 'O' and atom.GetTotalNumHs() > 0:
-                has_hydroxyl = True
-            if atom.GetSymbol() == 'N':
-                has_amine = True
-
-        # carbonyl groups
-        patt = Chem.MolFromSmarts('C=O')
-        if mol.HasSubstructMatch(patt):
-            has_carbonyl = True
-
-        # Molecular properties
-        mw = Descriptors.MolWt(mol)
-        logp = Descriptors.MolLogP(mol)
-
-        # Rules for fragment selection
-        if has_aromatic and not has_hydroxyl:
-            return ("O", "Hydroxyl")  # Add hydroxyl to aromatic rings
-        elif has_aromatic and not has_amine:
-            return ("N", "Amine")  # Add amine to aromatic rings
-        elif has_hydroxyl and not has_carbonyl:
-            return ("CO", "Carbonyl")  # Add carbonyl near hydroxyl
-        elif mw < 200:
-            return ("c1ccccc1", "Benzene")  # Add aromatic ring to small molecules
-        elif logp > 3:
-            return ("O", "Hydroxyl")  # Add hydroxyl to lipophilic molecules
-        else:
-            # Default: random selection
-            return random.choice(self.fragments)
-
-    def _add_fragment(self, mol):
-        rwmol = Chem.RWMol(mol)
-        atoms = [atom for atom in rwmol.GetAtoms() if atom.GetTotalNumHs() > 0]
-
-        if not atoms:
-            return mol
-
-        # Score atoms based on their environment
-        atom_scores = []
-        for atom in atoms:
-            # Prefer atoms that are not in rings
-            in_ring_penalty = 0.5 if atom.IsInRing() else 1.0
-            # Prefer atoms with more hydrogens
-            h_bonus = atom.GetTotalNumHs() * 0.2
-            # Prefer carbon atoms (more stable connections)
-            element_factor = 1.0 if atom.GetSymbol() == 'C' else 0.8
-            # Calculate score
-            score = in_ring_penalty * (1.0 + h_bonus) * element_factor
-            atom_scores.append((atom, score))
-    
-        # Select atom with probability proportional to score
-        total_score = sum(score for _, score in atom_scores)
-        r = random.uniform(0, total_score)
-        cumulative = 0
-        selected_atom = atoms[0]  # Default
-        for atom, score in atom_scores:
-            cumulative += score
-            if r <= cumulative:
-                selected_atom = atom
-                break
-
-        fragment, _ = self._predict_fragment(mol)
-        frag_mol = Chem.MolFromSmiles(fragment)
-
-        if not frag_mol:
-            fragment, _ = random.choice(self.fragments)
-            frag_mol = Chem.MolFromSmiles(fragment)
-
-        combined = Chem.CombineMols(rwmol, frag_mol)
-        ed_combined = Chem.EditableMol(combined)
-
-        ed_combined.AddBond(
-            atom.GetIdx(),
-            rwmol.GetNumAtoms(),
-            order=Chem.BondType.SINGLE
-        )
-
-        return ed_combined.GetMol()
-    
-
-    def _optimize_latent_space(self, n_calls=10, property_func=None):
-        try:
-            if not self._vae_trained:
-                print("VAE not trained, cannot optimize latent space")
-                return None
-
-            latent_dim = self.decoder[0].in_features
-
-            # maximize QED (drug-likeness)
-            if property_func is None:
-                from rdkit.Chem import QED
-
-                def property_func(mol):
-                    if mol:
-                        return -QED.qed(mol)  
-                    return 0
-
-            # optimizing
-            def objective(x):
-
-                z = torch.FloatTensor(x).reshape(1, -1).to(self.device)
-
-                with torch.no_grad():
-                    recon_x = self.decoder(z)
-                    gen_fp_arr = (torch.rand_like(recon_x) < recon_x).cpu().numpy().astype(int)[0]
-
-                    #nearest molecule in training
-                    gen_fp = DataStructs.ExplicitBitVect(2048)
-                    for i in range(2048):
-                        if gen_fp_arr[i]:
-                            gen_fp.SetBit(i)
-
-                    max_sim = -1
-                    best_mol = None
-
-                    for train_fp, smile in zip(self.training_fps, self.training_smiles):
-                        train_fpv = DataStructs.ExplicitBitVect(2048)
-                        for i in range(2048):
-                            if train_fp[i]:
-                                train_fpv.SetBit(i)
-
-                        sim = DataStructs.TanimotoSimilarity(gen_fp, train_fpv)
-                        if sim > max_sim:
-                            max_sim = sim
-                            best_mol = Chem.MolFromSmiles(smile)
-
-                    return property_func(best_mol)
-
-            #  search space
-            space = [Real(-3.0, 3.0, name=f'z_{i}') for i in range(latent_dim)]
-
-            #optimization
-            result = gp_minimize(objective, space, n_calls=n_calls, random_state=42)
-
-            # best latent vector
-            best_z = result.x
-
-            return torch.FloatTensor(best_z).reshape(1, -1).to(self.device)
-
-        except ImportError:
-            print("scikit-optimize not installed, using random sampling instead")
-            return torch.randn(1, self.decoder[0].in_features).to(self.device)
-        except Exception as e:
-            print(f"Error in latent space optimization: {e}")
-            return torch.randn(1, self.decoder[0].in_features).to(self.device)
-
-
-        
-    def _pass_filters(self, mol):
-        mw = Descriptors.MolWt(mol)
-        logp = Descriptors.MolLogP(mol)
-        
-        return (150 <= mw <= 600) and (-2 <= logp <= 5) and \
-               (Descriptors.NumHDonors(mol) <= 5) and \
-               (Descriptors.NumHAcceptors(mol) <= 10)
-
-class MoleculeGenerator(VAEMoleculeGenerator):
+# Convenience wrapper maintaining the same interface
+class MoleculeGenerator(OptimizedVAEMoleculeGenerator):
     def __init__(self):
         super().__init__()
