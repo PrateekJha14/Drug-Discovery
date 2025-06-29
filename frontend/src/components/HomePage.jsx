@@ -16,7 +16,8 @@ export default function HomePage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const response = await axios.post('http://localhost:8000/api/discover', {
+      const response = await axios.post('https://drug-discovery-ai-9vxo.onrender.com/api/discover', {
+
         protein_name: protein
       });
       navigate('/results', { state: { results: response.data } });
