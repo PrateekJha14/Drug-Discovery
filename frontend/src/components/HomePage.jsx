@@ -15,13 +15,14 @@ export default function HomePage() {
   const handleDiscover = async (e) => {
     e.preventDefault();
     setLoading(true);
-    try {
-      const response = await axios.post('https://drug-discovery-ai-9vxo.onrender.com/api/discover', {
-
-        protein_name: protein
-      });
-      navigate('/results', { state: { results: response.data } });
-    } catch (err) {
+      try {
+    const response = await axios.post(
+      'https://drug-discovery-ai-9vxo.onrender.com/api/discover',
+      { protein_name: protein },
+      { withCredentials: true }  // Add this line
+    );
+    navigate('/results', { state: { results: response.data } });
+  } catch (err) {
       setError(err.response?.data?.detail || 'Discovery failed');
     } finally {
       setLoading(false);
