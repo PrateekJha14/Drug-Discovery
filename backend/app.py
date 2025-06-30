@@ -22,7 +22,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://molecule-ai.onrender.com"],  # ✅ specific origin
+    allow_origins=["https://drug-discovery-ai-ui.onrender.com/"],  # ✅ specific origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
